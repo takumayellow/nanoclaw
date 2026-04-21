@@ -19,6 +19,7 @@ import {
 } from './config.js';
 import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
 import { logger } from './logger.js';
+import { readEnvFile } from './env.js';
 import {
   CONTAINER_RUNTIME_BIN,
   hostGatewayArgs,
@@ -247,6 +248,7 @@ async function buildContainerArgs(
   mounts: VolumeMount[],
   containerName: string,
   agentIdentifier?: string,
+  group?: RegisteredGroup,
 ): Promise<string[]> {
   const args: string[] = ['run', '-i', '--rm', '--name', containerName];
 
@@ -289,6 +291,33 @@ async function buildContainerArgs(
     }
   }
 
+  // Per-group / top-level GH_TOKEN injection.
+  // Priority: groups/<name>/.env > top-level .env > process.env
+  let ghToken: string | undefined;
+  if (group) {
+    const groupDir = resolveGroupFolderPath(group.folder);
+    const groupEnvPath = path.join(groupDir, '.env');
+    if (fs.existsSync(groupEnvPath)) {
+      const groupGh = readEnvFile(['GH_TOKEN', 'GITHUB_TOKEN'], groupEnvPath);
+      ghToken = groupGh.GH_TOKEN || groupGh.GITHUB_TOKEN;
+      if (ghToken) {
+        logger.debug({ group: group.name }, 'using per-group GH_TOKEN');
+      }
+    }
+  }
+  if (!ghToken) {
+    const envGh = readEnvFile(['GH_TOKEN', 'GITHUB_TOKEN']);
+    ghToken =
+      envGh.GH_TOKEN ||
+      envGh.GITHUB_TOKEN ||
+      process.env.GH_TOKEN ||
+      process.env.GITHUB_TOKEN;
+  }
+  if (ghToken) {
+    args.push('-e', `GH_TOKEN=${ghToken}`);
+    args.push('-e', `GITHUB_TOKEN=${ghToken}`);
+  }
+
   args.push(CONTAINER_IMAGE);
 
   return args;
@@ -316,6 +345,7 @@ export async function runContainerAgent(
     mounts,
     containerName,
     agentIdentifier,
+    group,
   );
 
   logger.debug(
