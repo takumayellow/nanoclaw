@@ -327,7 +327,9 @@ export async function runContainerAgent(
         (m) =>
           `${m.hostPath} -> ${m.containerPath}${m.readonly ? ' (ro)' : ''}`,
       ),
-      containerArgs: containerArgs.join(' '),
+      containerArgs: containerArgs
+        .join(' ')
+        .replace(/(GH_TOKEN|GITHUB_TOKEN|ANTHROPIC_API_KEY|DISCORD_BOT_TOKEN|CLAUDE_CODE_OAUTH_TOKEN)=[^ ]+/g, '$1=***'),
     },
     'Container mount configuration',
   );

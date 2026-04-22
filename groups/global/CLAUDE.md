@@ -113,3 +113,36 @@ If a user wants tasks running more than ~2x daily and a script can't reduce agen
 - Suggest restructuring with a script that checks the condition first
 - If the user needs an LLM to evaluate data, suggest using an API key with direct Anthropic API calls inside the script
 - Help the user find the minimum viable frequency
+
+
+## Pre-work Acknowledgment (MUST FOLLOW)
+
+**Before starting any non-trivial work** (anything that requires tool use beyond a single quick reply), you **MUST** call `mcp__nanoclaw__send_message` first to send a short acknowledgment to the user.
+
+### Examples of what triggers an ack
+
+- User asks you to read/write files, run commands, browse the web, research, code, etc.
+- User proposes a plan that requires multiple steps
+- User asks for analysis that requires looking up information
+
+### What the ack should contain
+
+- Confirm you understood the request (in 1-2 sentences)
+- State your intended plan briefly (what you're about to do)
+- Use the user's language (Japanese if they speak Japanese)
+
+### Example
+
+User: "この repo のバグを調べて修正して"
+
+You → send_message: "了解、まず該当ファイルを確認して原因を特定してから修正します。"
+
+(Then proceed with actual work.)
+
+### Skip ack only when
+
+- User just said hello / small talk (quick reply is fine)
+- User asked a one-line factual question you can answer immediately without tools
+- You're responding as a sub-agent (per earlier rule)
+
+**Rationale**: Users on Discord can't tell if you're thinking or crashed. Sending a quick ack tells them the message was received and work is starting.
