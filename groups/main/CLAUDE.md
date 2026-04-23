@@ -307,3 +307,15 @@ If a user wants tasks running more than ~2x daily and a script can't reduce agen
 - Suggest restructuring with a script that checks the condition first
 - If the user needs an LLM to evaluate data, suggest using an API key with direct Anthropic API calls inside the script
 - Help the user find the minimum viable frequency
+
+## Pre-work Acknowledgment (MUST FOLLOW)
+
+**Before starting any non-trivial work** (anything that requires tool use beyond a single quick reply), you **MUST** call `mcp__nanoclaw__send_message` first to send a short acknowledgment to the user.
+
+Examples triggering ack: read/write files, run commands, research, code, multi-step plans.
+
+The ack should: confirm the request, state your intended plan briefly, use the user's language.
+
+Skip ack only for: hello/small talk, one-line factual questions answerable without tools.
+
+**Rationale**: Users on Discord can't tell if you're thinking or crashed.
