@@ -5,10 +5,18 @@ import {
   Client,
   Events,
   GatewayIntentBits,
+  GuildMember,
   Message,
   TextChannel,
   ThreadChannel,
 } from 'discord.js';
+import {
+  joinVoiceChannel as djsJoinVoiceChannel,
+  getVoiceConnection,
+  VoiceConnection,
+  VoiceConnectionStatus,
+  entersState,
+} from '@discordjs/voice';
 
 import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../config.js';
 import { readEnvFile } from '../env.js';
@@ -25,6 +33,99 @@ import {
 
 /** Pattern matching GitHub personal access tokens */
 const GH_TOKEN_PATTERN = /^(ghp_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+)$/;
+
+// --- Voice connection state (exported for use by other modules, e.g. STT/TTS) ---
+
+/** Current voice connection, if any. Other modules can import this to check VC state. */
+export let voiceConnection: VoiceConnection | null = null;
+
+/** Guild ID of the current voice connection */
+export let voiceGuildId: string | null = null;
+
+/** Channel ID of the current voice connection */
+export let voiceChannelId: string | null = null;
+
+/**
+ * Join the voice channel that the given guild member is currently in.
+ * Returns the VoiceConnection on success, or null if the member is not in a VC.
+ */
+export async function joinVC(
+  member: GuildMember,
+): Promise<VoiceConnection | null> {
+  const channel = member.voice.channel;
+  if (!channel) {
+    return null;
+  }
+
+  const connection = djsJoinVoiceChannel({
+    channelId: channel.id,
+    guildId: channel.guild.id,
+    adapterCreator: channel.guild.voiceAdapterCreator,
+    selfDeaf: false,
+  });
+
+  try {
+    await entersState(connection, VoiceConnectionStatus.Ready, 15_000);
+  } catch {
+    connection.destroy();
+    voiceConnection = null;
+    voiceGuildId = null;
+    voiceChannelId = null;
+    logger.error(
+      { guildId: channel.guild.id, channelId: channel.id },
+      'Voice connection failed to become ready within 15s',
+    );
+    return null;
+  }
+
+  voiceConnection = connection;
+  voiceGuildId = channel.guild.id;
+  voiceChannelId = channel.id;
+
+  // Clean up state when the connection is destroyed externally
+  connection.on(VoiceConnectionStatus.Destroyed, () => {
+    voiceConnection = null;
+    voiceGuildId = null;
+    voiceChannelId = null;
+    logger.info('Voice connection destroyed');
+  });
+
+  logger.info(
+    { guildId: channel.guild.id, channelId: channel.id, channelName: channel.name },
+    'Joined voice channel',
+  );
+
+  return connection;
+}
+
+/**
+ * Leave the current voice channel (if connected).
+ * Optionally pass a guildId to only leave if we're in that guild.
+ */
+export function leaveVC(guildId?: string): boolean {
+  if (guildId) {
+    const connection = getVoiceConnection(guildId);
+    if (connection) {
+      connection.destroy();
+      voiceConnection = null;
+      voiceGuildId = null;
+      voiceChannelId = null;
+      logger.info({ guildId }, 'Left voice channel');
+      return true;
+    }
+    return false;
+  }
+
+  if (voiceConnection) {
+    voiceConnection.destroy();
+    voiceConnection = null;
+    voiceGuildId = null;
+    voiceChannelId = null;
+    logger.info('Left voice channel');
+    return true;
+  }
+  return false;
+}
 
 export interface DiscordChannelOpts {
   onMessage: OnInboundMessage;
@@ -51,6 +152,7 @@ export class DiscordChannel implements Channel {
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.DirectMessages,
+        GatewayIntentBits.GuildVoiceStates,
       ],
     });
 
@@ -116,6 +218,56 @@ export class DiscordChannel implements Channel {
           if (!TRIGGER_PATTERN.test(content)) {
             content = `@${ASSISTANT_NAME} ${content}`;
           }
+        }
+      }
+
+      // --- Voice channel commands: /join-vc, /leave-vc ---
+      if (message.guild && content.match(/^\/(join-vc|leave-vc)\b/i)) {
+        const cmd = content.match(/^\/(join-vc|leave-vc)\b/i)![1].toLowerCase();
+
+        if (cmd === 'join-vc') {
+          const member = message.member;
+          if (!member?.voice.channel) {
+            try {
+              await message.reply(
+                'You need to be in a voice channel first.',
+              );
+            } catch {
+              /* ignore reply errors */
+            }
+            return;
+          }
+          const conn = await joinVC(member);
+          if (conn) {
+            try {
+              await message.reply(
+                `Joined **${member.voice.channel.name}**.`,
+              );
+            } catch {
+              /* ignore reply errors */
+            }
+          } else {
+            try {
+              await message.reply(
+                'Failed to join the voice channel. Please try again.',
+              );
+            } catch {
+              /* ignore reply errors */
+            }
+          }
+          return;
+        }
+
+        if (cmd === 'leave-vc') {
+          const left = leaveVC(message.guild.id);
+          try {
+            await message.reply(
+              left ? 'Left the voice channel.' : 'I am not in a voice channel.',
+            );
+          } catch {
+            /* ignore reply errors */
+          }
+          return;
         }
       }
 
