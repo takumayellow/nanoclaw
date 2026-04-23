@@ -94,7 +94,11 @@ export async function joinVC(
   });
 
   logger.info(
-    { guildId: channel.guild.id, channelId: channel.id, channelName: channel.name },
+    {
+      guildId: channel.guild.id,
+      channelId: channel.id,
+      channelName: channel.name,
+    },
     'Joined voice channel',
   );
 
@@ -180,7 +184,10 @@ export class DiscordChannel implements Channel {
               '✅ GitHub トークン登録しました。以降、あなたが作成したスレッドではこのトークンで push されます。',
             );
           } catch (err) {
-            logger.warn({ err }, 'Failed to reply in DM after token registration');
+            logger.warn(
+              { err },
+              'Failed to reply in DM after token registration',
+            );
           }
           return;
         }
@@ -211,7 +218,6 @@ export class DiscordChannel implements Channel {
         return;
       }
       // === end DM handler ===
-
 
       const channelId = message.channelId;
       const chatJid = `dc:${channelId}`;
@@ -264,9 +270,7 @@ export class DiscordChannel implements Channel {
           const member = message.member;
           if (!member?.voice.channel) {
             try {
-              await message.reply(
-                'You need to be in a voice channel first.',
-              );
+              await message.reply('You need to be in a voice channel first.');
             } catch {
               /* ignore reply errors */
             }
@@ -275,9 +279,7 @@ export class DiscordChannel implements Channel {
           const conn = await joinVC(member);
           if (conn) {
             try {
-              await message.reply(
-                `Joined **${member.voice.channel.name}**.`,
-              );
+              await message.reply(`Joined **${member.voice.channel.name}**.`);
             } catch {
               /* ignore reply errors */
             }
@@ -353,8 +355,13 @@ export class DiscordChannel implements Channel {
           chatJid,
           chatName,
           channelType: message.channel?.type,
-          isThread: typeof (message.channel as any)?.isThread === 'function' ? (message.channel as any).isThread() : 'no-method',
-          parentId: (message.channel as any)?.parentId ?? (message.channel as any)?.parent?.id,
+          isThread:
+            typeof (message.channel as any)?.isThread === 'function'
+              ? (message.channel as any).isThread()
+              : 'no-method',
+          parentId:
+            (message.channel as any)?.parentId ??
+            (message.channel as any)?.parent?.id,
           hasRegisterGroup: !!this.opts.registerGroup,
           groupFound: !!group,
         },
@@ -368,7 +375,9 @@ export class DiscordChannel implements Channel {
           ? this.opts.registeredGroups()[parentJid]
           : undefined;
         if (parentGroup && this.opts.registerGroup) {
-          const safeName = (chatName || channelId).replace(/[^a-zA-Z0-9-_]/g, '-').slice(0, 60);
+          const safeName = (chatName || channelId)
+            .replace(/[^a-zA-Z0-9-_]/g, '-')
+            .slice(0, 60);
           const folder = `${parentGroup.folder}_thread_${channelId}`;
           this.opts.registerGroup(chatJid, {
             name: chatName,
@@ -387,8 +396,7 @@ export class DiscordChannel implements Channel {
 
           // === Per-thread GH token routing ===
           // Determine thread creator. For private/public threads, ownerId is the creator.
-          const threadOwnerId =
-            (threadCh as any).ownerId || message.author.id;
+          const threadOwnerId = (threadCh as any).ownerId || message.author.id;
           try {
             if (!isAdmin(threadOwnerId, message.member)) {
               const userToken = getUserToken(threadOwnerId);

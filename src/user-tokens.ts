@@ -80,7 +80,9 @@ export function writeGroupGhToken(groupDir: string, token: string): void {
   // Remove any existing GH_TOKEN / GITHUB_TOKEN line
   const cleaned = existing
     .split('\n')
-    .filter((l) => !/^(#?\s*)?GH_TOKEN=/.test(l) && !/^(#?\s*)?GITHUB_TOKEN=/.test(l))
+    .filter(
+      (l) => !/^(#?\s*)?GH_TOKEN=/.test(l) && !/^(#?\s*)?GITHUB_TOKEN=/.test(l),
+    )
     .join('\n');
   const newContent =
     (cleaned.endsWith('\n') || cleaned === '' ? cleaned : cleaned + '\n') +
@@ -101,5 +103,7 @@ export function writeGroupGhToken(groupDir: string, token: string): void {
  */
 export function looksLikeGhToken(raw: string): boolean {
   const s = raw.trim();
-  return /^(gh[pouse]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})$/i.test(s);
+  return /^(gh[pouse]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})$/i.test(
+    s,
+  );
 }
