@@ -1,8 +1,12 @@
-import { Client, Events, GatewayIntentBits, Message, TextChannel } from 'discord.js';
+import fs from 'fs';
+import path from 'path';
+import { ChannelType, Client, Events, GatewayIntentBits, Message, TextChannel, ThreadChannel } from 'discord.js';
 
 import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../config.js';
 import { readEnvFile } from '../env.js';
+import { resolveGroupFolderPath } from '../group-folder.js';
 import { logger } from '../logger.js';
+import { getToken, setToken, isAdmin } from '../store/user-tokens.js';
 import { registerChannel, ChannelOpts } from './registry.js';
 import {
   Channel,
@@ -10,6 +14,9 @@ import {
   OnInboundMessage,
   RegisteredGroup,
 } from '../types.js';
+
+/** Pattern matching GitHub personal access tokens */
+const GH_TOKEN_PATTERN = /^(ghp_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+)$/;
 
 export interface DiscordChannelOpts {
   onMessage: OnInboundMessage;
@@ -42,6 +49,21 @@ export class DiscordChannel implements Channel {
     this.client.on(Events.MessageCreate, async (message: Message) => {
       // Ignore bot messages (including own)
       if (message.author.bot) return;
+
+      // --- DM: GitHub token registration ---
+      if (message.channel.type === ChannelType.DM) {
+        const content = message.content.trim();
+        if (GH_TOKEN_PATTERN.test(content)) {
+          setToken(message.author.id, content);
+          try {
+            await message.reply('GitHubトークンを登録しました！');
+          } catch (err) {
+            logger.warn({ userId: message.author.id, err }, 'Failed to reply to DM with token confirmation');
+          }
+          return;
+        }
+        // Other DMs fall through to normal processing (e.g. registered solo chats)
+      }
 
       const channelId = message.channelId;
       const chatJid = `dc:${channelId}`;
@@ -135,6 +157,65 @@ export class DiscordChannel implements Channel {
           'Message from unregistered Discord channel',
         );
         return;
+      }
+
+      // --- Per-user GH_TOKEN injection for threads ---
+      // When a message arrives in a Discord thread, inject the thread
+      // creator's GitHub token into the group folder's .env so the
+      // container picks it up via the per-group GH_TOKEN mechanism.
+      if (message.channel.isThread()) {
+        const thread = message.channel as ThreadChannel;
+        const threadOwnerId = thread.ownerId;
+        if (threadOwnerId && !isAdmin(threadOwnerId, message.member)) {
+          const userToken = getToken(threadOwnerId);
+          if (userToken) {
+            try {
+              const groupDir = resolveGroupFolderPath(group.folder);
+              const envPath = path.join(groupDir, '.env');
+              fs.mkdirSync(groupDir, { recursive: true });
+              fs.writeFileSync(envPath, `GH_TOKEN=${userToken}\n`);
+              logger.info(
+                { chatJid, userId: threadOwnerId, folder: group.folder },
+                'Injected per-user GH_TOKEN for thread',
+              );
+            } catch (err) {
+              logger.error(
+                { chatJid, userId: threadOwnerId, err },
+                'Failed to inject per-user GH_TOKEN for thread',
+              );
+            }
+          } else {
+            // Thread creator has no token registered — send DM guidance
+            try {
+              const owner = await this.client!.users.fetch(threadOwnerId);
+              await owner.send(
+                'GitHubトークンが未登録です。このDMにGitHubトークン（`ghp_...` または `github_pat_...`）を送ってください。',
+              );
+              logger.info(
+                { userId: threadOwnerId },
+                'Sent GitHub token registration DM to thread owner',
+              );
+            } catch (err) {
+              logger.warn(
+                { userId: threadOwnerId, err },
+                'Could not send token registration DM to thread owner',
+              );
+            }
+          }
+        }
+        // Admin thread owners: no injection needed, top-level GH_TOKEN is used
+      }
+
+      // --- Unregistered user (non-thread): DM guidance to register GitHub token ---
+      if (!message.channel.isThread() && message.guild && !getToken(sender) && !isAdmin(sender, message.member)) {
+        try {
+          await message.author.send(
+            'GitHubトークンが未登録です。このDMにGitHubトークン（`ghp_...` または `github_pat_...`）を送ってください。',
+          );
+          logger.info({ userId: sender }, 'Sent GitHub token registration DM');
+        } catch (err) {
+          logger.warn({ userId: sender, err }, 'Could not send token registration DM');
+        }
       }
 
       // Deliver message — startMessageLoop() will pick it up

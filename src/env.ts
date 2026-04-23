@@ -8,6 +8,21 @@ import { logger } from './logger.js';
  * do with the values. This keeps secrets out of the process environment
  * so they don't leak to child processes.
  */
+/**
+ * Read ADMIN_USER_IDS from .env (comma-separated Discord User IDs).
+ * Returns a Set for O(1) lookups.
+ */
+export function getAdminUserIds(envPath?: string): Set<string> {
+  const env = readEnvFile(['ADMIN_USER_IDS'], envPath);
+  const raw = process.env.ADMIN_USER_IDS || env.ADMIN_USER_IDS || '';
+  return new Set(
+    raw
+      .split(',')
+      .map((id) => id.trim())
+      .filter(Boolean),
+  );
+}
+
 export function readEnvFile(
   keys: string[],
   envPath?: string,
