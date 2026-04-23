@@ -284,7 +284,9 @@ export class DiscordChannel implements Channel {
                 // Resolve display name from guild member cache
                 const guildMember = vcChannel.guild.members.cache.get(uid);
                 const displayName =
-                  guildMember?.displayName || guildMember?.user?.username || uid;
+                  guildMember?.displayName ||
+                  guildMember?.user?.username ||
+                  uid;
                 this.handleVoiceMessage(
                   uid,
                   displayName,
@@ -532,7 +534,8 @@ export class DiscordChannel implements Channel {
         // Prefer the first text channel the bot can access.
         const guild = this.client.guilds.cache.get(guildId);
         const textChannel = guild?.channels.cache.find(
-          (ch): ch is TextChannel => ch.isTextBased() && !ch.isVoiceBased() && !ch.isThread(),
+          (ch): ch is TextChannel =>
+            ch.isTextBased() && !ch.isVoiceBased() && !ch.isThread(),
         ) as TextChannel | undefined;
 
         if (textChannel) {
@@ -544,7 +547,10 @@ export class DiscordChannel implements Channel {
               const audio = await textToSpeech('スレッドを作成しました');
               await playAudio(voiceConnection, audio);
             } catch (err) {
-              logger.error({ err }, 'TTS announcement for decision thread failed');
+              logger.error(
+                { err },
+                'TTS announcement for decision thread failed',
+              );
             }
           }
 
@@ -564,7 +570,13 @@ export class DiscordChannel implements Channel {
     const timestamp = new Date().toISOString();
 
     // Store chat metadata so the voice channel is discoverable
-    this.opts.onChatMetadata(chatJid, timestamp, `Voice ${channelId}`, 'discord', true);
+    this.opts.onChatMetadata(
+      chatJid,
+      timestamp,
+      `Voice ${channelId}`,
+      'discord',
+      true,
+    );
 
     this.opts.onMessage(chatJid, {
       id: `voice-${userId}-${Date.now()}`,
@@ -593,7 +605,10 @@ export class DiscordChannel implements Channel {
       try {
         const audio = await textToSpeech(text);
         await playAudio(voiceConnection, audio);
-        logger.info({ jid, length: text.length }, 'Voice response played via TTS');
+        logger.info(
+          { jid, length: text.length },
+          'Voice response played via TTS',
+        );
       } catch (err) {
         logger.error({ jid, err }, 'TTS playback failed for voice response');
       }
