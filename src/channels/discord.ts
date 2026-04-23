@@ -128,6 +128,9 @@ export function leaveVC(guildId?: string): boolean {
   return false;
 }
 
+// --- Voice connection state (exported for use by other modules, e.g. STT/TTS) ---
+
+/** Current voice connection, if any. Other modules can import this to check VC state. */
 export interface DiscordChannelOpts {
   onMessage: OnInboundMessage;
   onChatMetadata: OnChatMetadata;
