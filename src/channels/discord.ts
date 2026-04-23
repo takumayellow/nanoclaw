@@ -10,6 +10,15 @@ import {
 import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../config.js';
 import { readEnvFile } from '../env.js';
 import { logger } from '../logger.js';
+import {
+  getUserToken,
+  setUserToken,
+  hasUserToken,
+  writeGroupGhToken,
+  looksLikeGhToken,
+} from '../user-tokens.js';
+import { isAdmin } from '../admin-check.js';
+import { resolveGroupFolderPath } from '../group-folder.js';
 import { registerChannel, ChannelOpts } from './registry.js';
 import {
   Channel,
@@ -50,6 +59,49 @@ export class DiscordChannel implements Channel {
     this.client.on(Events.MessageCreate, async (message: Message) => {
       // Ignore bot messages (including own)
       if (message.author.bot) return;
+
+      // === DM handler: per-user GH token registration ===
+      if (!message.guild) {
+        const rawContent = message.content.trim();
+        if (looksLikeGhToken(rawContent)) {
+          setUserToken(message.author.id, rawContent);
+          try {
+            await message.reply(
+              '✅ GitHub トークン登録しました。以降、あなたが作成したスレッドではこのトークンで push されます。',
+            );
+          } catch (err) {
+            logger.warn({ err }, 'Failed to reply in DM after token registration');
+          }
+          return;
+        }
+        if (/^(help|ヘルプ|\?)$/i.test(rawContent)) {
+          try {
+            await message.reply(
+              'GitHub Personal Access Token (ghp_... か github_pat_...) を送信してください。\n作成: https://github.com/settings/tokens\n必要な権限: repo (push 権限)',
+            );
+          } catch (err) {
+            logger.warn({ err }, 'Failed to reply help in DM');
+          }
+          return;
+        }
+        if (/^(status|登録状況)$/i.test(rawContent)) {
+          const has = hasUserToken(message.author.id);
+          try {
+            await message.reply(
+              has
+                ? '✅ トークン登録済みです。'
+                : '❌ まだトークン登録されていません。`ghp_...` を送信してください。',
+            );
+          } catch (err) {
+            logger.warn({ err }, 'Failed to reply status in DM');
+          }
+          return;
+        }
+        // Other DM content — ignore silently (non-trigger for bot)
+        return;
+      }
+      // === end DM handler ===
+
 
       const channelId = message.channelId;
       const chatJid = `dc:${channelId}`;
@@ -165,13 +217,54 @@ export class DiscordChannel implements Channel {
             added_at: new Date().toISOString(),
             containerConfig: parentGroup.containerConfig,
             requiresTrigger: parentGroup.requiresTrigger,
-            isMain: false,
+            isMain: parentGroup.isMain,
           });
           logger.info(
             { chatJid, chatName, parentFolder: parentGroup.folder, folder },
             'Auto-registered Discord thread under parent group',
           );
           group = this.opts.registeredGroups()[chatJid];
+
+          // === Per-thread GH token routing ===
+          // Determine thread creator. For private/public threads, ownerId is the creator.
+          const threadOwnerId =
+            (threadCh as any).ownerId || message.author.id;
+          try {
+            if (!isAdmin(threadOwnerId, message.member)) {
+              const userToken = getUserToken(threadOwnerId);
+              if (userToken) {
+                const groupDir = resolveGroupFolderPath(folder);
+                writeGroupGhToken(groupDir, userToken);
+                logger.info(
+                  { threadOwnerId, folder },
+                  'Wrote per-user GH_TOKEN to thread group .env',
+                );
+              } else {
+                // DM the creator asking for a token (best-effort; private threads may block DMs)
+                try {
+                  const owner = await this.client!.users.fetch(threadOwnerId);
+                  await owner.send(
+                    `あなたが作成したスレッド「${chatName}」で bot を使うには、GitHub Personal Access Token を DM で送ってください。\n` +
+                      '作成: https://github.com/settings/tokens\n' +
+                      '必要な権限: repo (push)\n' +
+                      '登録後は自動でそのスレッドに反映されます。',
+                  );
+                  logger.info(
+                    { threadOwnerId, chatName },
+                    'Sent DM requesting GH token',
+                  );
+                } catch (err) {
+                  logger.warn(
+                    { err, threadOwnerId },
+                    'Failed to DM thread owner for token',
+                  );
+                }
+              }
+            }
+          } catch (err) {
+            logger.warn({ err }, 'Per-thread GH token routing failed');
+          }
+          // === end per-thread GH token routing ===
         }
       }
 
