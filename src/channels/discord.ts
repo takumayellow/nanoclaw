@@ -14,6 +14,7 @@ import {
   VoiceConnectionStatus,
   entersState,
 } from '@discordjs/voice';
+import _sodium from 'libsodium-wrappers';
 
 import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../config.js';
 import { readEnvFile } from '../env.js';
@@ -66,15 +67,16 @@ export async function joinVC(
   });
 
   try {
-    await entersState(connection, VoiceConnectionStatus.Ready, 15_000);
-  } catch {
+    await entersState(connection, VoiceConnectionStatus.Ready, 30_000);
+  } catch (err) {
+    const state = connection.state.status;
     connection.destroy();
     voiceConnection = null;
     voiceGuildId = null;
     voiceChannelId = null;
     logger.error(
-      { guildId: channel.guild.id, channelId: channel.id },
-      'Voice connection failed to become ready within 15s',
+      { guildId: channel.guild.id, channelId: channel.id, state, err },
+      'Voice connection failed to become ready within 30s',
     );
     return null;
   }
@@ -151,6 +153,9 @@ export class DiscordChannel implements Channel {
   }
 
   async connect(): Promise<void> {
+    // Ensure libsodium WASM is ready before @discordjs/voice needs it for encryption
+    await _sodium.ready;
+
     this.client = new Client({
       intents: [
         GatewayIntentBits.Guilds,
