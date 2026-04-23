@@ -5,9 +5,9 @@ node_modules/
 dist/
 
 # Local data & auth
-store/
-data/
-logs/
+/store/
+/data/
+/logs/
 
 # Groups - only track base structure and specific CLAUDE.md files
 groups/*

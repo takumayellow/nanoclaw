@@ -1,6 +1,14 @@
 import fs from 'fs';
 import path from 'path';
-import { ChannelType, Client, Events, GatewayIntentBits, Message, TextChannel, ThreadChannel } from 'discord.js';
+import {
+  ChannelType,
+  Client,
+  Events,
+  GatewayIntentBits,
+  Message,
+  TextChannel,
+  ThreadChannel,
+} from 'discord.js';
 
 import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../config.js';
 import { readEnvFile } from '../env.js';
@@ -58,7 +66,10 @@ export class DiscordChannel implements Channel {
           try {
             await message.reply('GitHubトークンを登録しました！');
           } catch (err) {
-            logger.warn({ userId: message.author.id, err }, 'Failed to reply to DM with token confirmation');
+            logger.warn(
+              { userId: message.author.id, err },
+              'Failed to reply to DM with token confirmation',
+            );
           }
           return;
         }
@@ -110,18 +121,20 @@ export class DiscordChannel implements Channel {
 
       // Handle attachments — store placeholders so the agent knows something was sent
       if (message.attachments.size > 0) {
-        const attachmentDescriptions = [...message.attachments.values()].map((att) => {
-          const contentType = att.contentType || '';
-          if (contentType.startsWith('image/')) {
-            return `[Image: ${att.name || 'image'}]`;
-          } else if (contentType.startsWith('video/')) {
-            return `[Video: ${att.name || 'video'}]`;
-          } else if (contentType.startsWith('audio/')) {
-            return `[Audio: ${att.name || 'audio'}]`;
-          } else {
-            return `[File: ${att.name || 'file'}]`;
-          }
-        });
+        const attachmentDescriptions = [...message.attachments.values()].map(
+          (att) => {
+            const contentType = att.contentType || '';
+            if (contentType.startsWith('image/')) {
+              return `[Image: ${att.name || 'image'}]`;
+            } else if (contentType.startsWith('video/')) {
+              return `[Video: ${att.name || 'video'}]`;
+            } else if (contentType.startsWith('audio/')) {
+              return `[Audio: ${att.name || 'audio'}]`;
+            } else {
+              return `[File: ${att.name || 'file'}]`;
+            }
+          },
+        );
         if (content) {
           content = `${content}\n${attachmentDescriptions.join('\n')}`;
         } else {
@@ -147,7 +160,13 @@ export class DiscordChannel implements Channel {
 
       // Store chat metadata for discovery
       const isGroup = message.guild !== null;
-      this.opts.onChatMetadata(chatJid, timestamp, chatName, 'discord', isGroup);
+      this.opts.onChatMetadata(
+        chatJid,
+        timestamp,
+        chatName,
+        'discord',
+        isGroup,
+      );
 
       // Only deliver full message for registered groups
       const group = this.opts.registeredGroups()[chatJid];
@@ -207,14 +226,22 @@ export class DiscordChannel implements Channel {
       }
 
       // --- Unregistered user (non-thread): DM guidance to register GitHub token ---
-      if (!message.channel.isThread() && message.guild && !getToken(sender) && !isAdmin(sender, message.member)) {
+      if (
+        !message.channel.isThread() &&
+        message.guild &&
+        !getToken(sender) &&
+        !isAdmin(sender, message.member)
+      ) {
         try {
           await message.author.send(
             'GitHubトークンが未登録です。このDMにGitHubトークン（`ghp_...` または `github_pat_...`）を送ってください。',
           );
           logger.info({ userId: sender }, 'Sent GitHub token registration DM');
         } catch (err) {
-          logger.warn({ userId: sender, err }, 'Could not send token registration DM');
+          logger.warn(
+            { userId: sender, err },
+            'Could not send token registration DM',
+          );
         }
       }
 
