@@ -4,6 +4,7 @@ import {
   GatewayIntentBits,
   GuildMember,
   Message,
+  NewsChannel,
   ThreadChannel,
   TextChannel,
 } from 'discord.js';
@@ -19,6 +20,10 @@ import {
 import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../config.js';
 import { readEnvFile } from '../env.js';
 import { logger } from '../logger.js';
+import { startListening, stopListening } from '../voice/stt.js';
+import { textToSpeech } from '../voice/tts.js';
+import { playAudio } from '../voice/player.js';
+import { checkKeyword, createDecisionThread } from '../voice/keyword.js';
 import {
   getUserToken,
   setUserToken,
@@ -325,6 +330,26 @@ export class DiscordChannel implements Channel {
           }
           const conn = await joinVC(member, this.client!);
           if (conn) {
+            // Start voice STT listening
+            const vcChannel = member.voice.channel!;
+            startListening(
+              conn,
+              vcChannel.id,
+              (uid: string, transcript: string) => {
+                const guildMember = vcChannel.guild.members.cache.get(uid);
+                const displayName =
+                  guildMember?.displayName ||
+                  guildMember?.user?.username ||
+                  uid;
+                void this.handleVoiceMessage(
+                  uid,
+                  displayName,
+                  transcript,
+                  vcChannel.guild.id,
+                  vcChannel.id,
+                );
+              },
+            );
             try {
               await message.reply(`Joined **${member.voice.channel.name}**.`);
             } catch {
@@ -343,6 +368,7 @@ export class DiscordChannel implements Channel {
         }
 
         if (cmd === 'leave-vc') {
+          stopListening();
           const left = leaveVC(message.guild.id);
           try {
             await message.reply(
@@ -541,9 +567,96 @@ export class DiscordChannel implements Channel {
     });
   }
 
+  /**
+   * Feed a voice transcription into the normal message pipeline.
+   * Called by the STT onTranscript callback.
+   *
+   * Checks for decision keywords first — if detected, creates a thread
+   * and announces it via TTS instead of routing to Claude.
+   */
+  async handleVoiceMessage(
+    userId: string,
+    userName: string,
+    text: string,
+    guildId: string,
+    channelId: string,
+  ): Promise<void> {
+    // --- Keyword detection: create decision thread ---
+    if (checkKeyword(text) && this.client) {
+      try {
+        const guild = this.client.guilds.cache.get(guildId);
+        const textChannel = guild?.channels.cache.find(
+          (ch): ch is TextChannel =>
+            ch.isTextBased() && !ch.isVoiceBased() && !ch.isThread(),
+        ) as TextChannel | undefined;
+
+        if (textChannel) {
+          await createDecisionThread(textChannel, `**${userName}**: ${text}`);
+
+          // Announce in VC via TTS
+          if (voiceConnection) {
+            try {
+              const audio = await textToSpeech('スレッドを作成しました');
+              await playAudio(voiceConnection, audio);
+            } catch (err) {
+              logger.error({ err }, 'TTS announcement for decision thread failed');
+            }
+          }
+
+          logger.info(
+            { userId, userName, guildId, channelId },
+            'Decision keyword detected — thread created',
+          );
+          return;
+        }
+      } catch (err) {
+        logger.error({ err }, 'Failed to create decision thread from keyword');
+      }
+    }
+
+    // --- Normal flow: route transcript to Claude ---
+    const chatJid = `dc:voice:${guildId}:${channelId}`;
+    const timestamp = new Date().toISOString();
+
+    this.opts.onChatMetadata(
+      chatJid,
+      timestamp,
+      `Voice ${channelId}`,
+      'discord',
+      true,
+    );
+
+    this.opts.onMessage(chatJid, {
+      id: `voice-${userId}-${Date.now()}`,
+      chat_jid: chatJid,
+      sender: userId,
+      sender_name: userName,
+      content: text,
+      timestamp,
+      is_from_me: false,
+    });
+
+    logger.info(
+      { userId, userName, guildId, channelId, textLength: text.length },
+      'Voice transcription routed to message pipeline',
+    );
+  }
+
   async sendMessage(jid: string, text: string): Promise<void> {
     if (!this.client) {
       logger.warn('Discord client not initialized');
+      return;
+    }
+
+    // Voice channel responses: play TTS audio instead of sending text
+    if (jid.startsWith('dc:voice:') && voiceConnection) {
+      try {
+        const audio = await textToSpeech(text);
+        await playAudio(voiceConnection, audio);
+        logger.info({ jid, length: text.length }, 'Voice response played via TTS');
+      } catch (err) {
+        logger.error({ jid, err }, 'TTS playback failed for voice response');
+      }
       return;
     }
 
