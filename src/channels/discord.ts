@@ -13,6 +13,7 @@ import {
   VoiceConnection,
   VoiceConnectionStatus,
   entersState,
+  DiscordGatewayAdapterLibraryMethods,
 } from '@discordjs/voice';
 
 import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../config.js';
@@ -49,19 +50,69 @@ export let voiceChannelId: string | null = null;
 /**
  * Join the voice channel that the given guild member is currently in.
  * Returns the VoiceConnection on success, or null if the member is not in a VC.
+ *
+ * Uses a manual voice adapter that explicitly forwards VOICE_STATE_UPDATE and
+ * VOICE_SERVER_UPDATE from the gateway, bypassing guild.voiceAdapterCreator
+ * which can silently fail to relay these events.
  */
 export async function joinVC(
   member: GuildMember,
+  client?: Client,
 ): Promise<VoiceConnection | null> {
   const channel = member.voice.channel;
   if (!channel) {
     return null;
   }
 
+  const guildId = channel.guild.id;
+
   const connection = djsJoinVoiceChannel({
     channelId: channel.id,
-    guildId: channel.guild.id,
-    adapterCreator: channel.guild.voiceAdapterCreator,
+    guildId,
+    adapterCreator: client
+      ? (methods: DiscordGatewayAdapterLibraryMethods) => {
+          const onVoiceStateUpdate = (data: any) => {
+            if (data.guild_id === guildId) {
+              methods.onVoiceStateUpdate(data);
+            }
+          };
+          const onVoiceServerUpdate = (data: any) => {
+            if (data.guild_id === guildId) {
+              methods.onVoiceServerUpdate(data);
+            }
+          };
+
+          client.ws.on(
+            'VOICE_STATE_UPDATE' as any,
+            onVoiceStateUpdate,
+          );
+          client.ws.on(
+            'VOICE_SERVER_UPDATE' as any,
+            onVoiceServerUpdate,
+          );
+
+          return {
+            sendPayload: (data: any) => {
+              const shard = client.ws.shards.first();
+              if (shard) {
+                shard.send(data);
+                return true;
+              }
+              return false;
+            },
+            destroy: () => {
+              client.ws.off(
+                'VOICE_STATE_UPDATE' as any,
+                onVoiceStateUpdate,
+              );
+              client.ws.off(
+                'VOICE_SERVER_UPDATE' as any,
+                onVoiceServerUpdate,
+              );
+            },
+          };
+        }
+      : channel.guild.voiceAdapterCreator,
     selfDeaf: false,
   });
 
@@ -156,8 +207,6 @@ export class DiscordChannel implements Channel {
   }
 
   async connect(): Promise<void> {
-
-
     this.client = new Client({
       intents: [
         GatewayIntentBits.Guilds,
@@ -274,7 +323,7 @@ export class DiscordChannel implements Channel {
             }
             return;
           }
-          const conn = await joinVC(member);
+          const conn = await joinVC(member, this.client!);
           if (conn) {
             try {
               await message.reply(`Joined **${member.voice.channel.name}**.`);
