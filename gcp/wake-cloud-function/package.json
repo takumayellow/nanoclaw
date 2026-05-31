@@ -1,0 +1,17 @@
+{
+  "name": "nanoclaw-wake",
+  "version": "1.0.0",
+  "description": "Cloud Function that handles Discord /wake, /sleep, /status slash commands to control the nanoclaw GCE VM.",
+  "type": "module",
+  "main": "index.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "register-commands": "node register-commands.js"
+  },
+  "dependencies": {
+    "@google-cloud/compute": "^4.8.0",
+    "tweetnacl": "^1.0.3"
+  }
+}
