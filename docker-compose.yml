@@ -1,0 +1,33 @@
+# Local-development convenience wrapper around the production Dockerfile.
+# Mirrors the volume mounts the GCP VM uses so behavior matches.
+#
+# Usage:
+#   cp .env.gcp.example .env
+#   # fill in real values, then:
+#   docker compose up --build
+#
+# This file is intended for local smoke testing only.
+# Production deployment uses gcp/startup-script.sh on Compute Engine.
+
+services:
+  nanoclaw:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: nanoclaw:latest
+    container_name: nanoclaw
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./store:/app/store
+      - ./logs:/app/logs
+      - ./groups:/app/groups
+    # Discord voice / @discordjs/voice does not require host networking,
+    # but the container does need outbound UDP. Standard bridge networking is fine.
+    healthcheck:
+      test: ["CMD", "node", "-e", "process.exit(0)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
