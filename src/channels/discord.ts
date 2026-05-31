@@ -24,6 +24,7 @@ import { startListening, stopListening } from '../voice/stt.js';
 import { textToSpeech } from '../voice/tts.js';
 import { playAudio } from '../voice/player.js';
 import { checkKeyword, createDecisionThread } from '../voice/keyword.js';
+import { touchHeartbeat } from '../voice/heartbeat.js';
 import {
   getUserToken,
   setUserToken,
@@ -332,10 +333,12 @@ export class DiscordChannel implements Channel {
           if (conn) {
             // Start voice STT listening
             const vcChannel = member.voice.channel!;
+            touchHeartbeat();
             startListening(
               conn,
               vcChannel.id,
               (uid: string, transcript: string) => {
+                touchHeartbeat();
                 const guildMember = vcChannel.guild.members.cache.get(uid);
                 const displayName =
                   guildMember?.displayName ||
@@ -369,6 +372,7 @@ export class DiscordChannel implements Channel {
 
         if (cmd === 'leave-vc') {
           stopListening();
+          touchHeartbeat();
           const left = leaveVC(message.guild.id);
           try {
             await message.reply(
