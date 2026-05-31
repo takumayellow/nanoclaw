@@ -33,7 +33,7 @@ export interface VoiceTranscriptionOpts {
   language?: string;
 }
 
-const DEFAULT_SILENCE_THRESHOLD = 1500;
+const DEFAULT_SILENCE_THRESHOLD = 3000;
 const DEFAULT_MAX_DURATION = 60_000;
 const SAMPLE_RATE = 48000;
 const CHANNELS = 2;
